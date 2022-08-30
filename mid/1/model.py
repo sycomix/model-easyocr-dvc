@@ -596,6 +596,7 @@ class TritonPythonModel(object):
                 if len(image_list) == 0: # add dummy boxes for image which have no textline
                     batch_out['mbbox'].append(img_idx)
                     batch_out['bbox'].append([-1, -1, -1, -1])
+                    box_shapes.append([-1, -1])
 
             if len(batch_out['bbox']) > 0:
                 max_w = max([math.ceil(box_shape[1]/box_shape[0])*64 for box_shape in box_shapes])
