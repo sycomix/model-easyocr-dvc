@@ -11,6 +11,11 @@ from triton_python_backend_utils import Tensor, InferenceResponse, \
     get_input_tensor_by_name, InferenceRequest, get_input_config_by_name, \
     get_output_config_by_name, triton_string_to_numpy
 
+
+def custom_mean(x):
+    return x.prod()**(2.0/np.sqrt(len(x)))
+
+
 class CTCLabelConverter(object):
     """ Convert between text-label and text-index """
 
@@ -83,6 +88,7 @@ class CTCLabelConverter(object):
             index += l
         return texts
 
+
 class TritonPythonModel(object):
     def __init__(self):
         self.input_names = {
@@ -92,7 +98,8 @@ class TritonPythonModel(object):
         }
         self.output_names = {
             'box': 'box',
-            'text': 'text'
+            'text': 'text',
+            'score': 'score'
         }
 
         self.converter = CTCLabelConverter("0123456789!\"#$%&'()*+,-./:;<=>?@[\]^_`{|}~ €ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", 
@@ -172,15 +179,32 @@ class TritonPythonModel(object):
                 preds_index = preds_index.view(-1)
                 preds_str = self.converter.decode_greedy(preds_index.data.cpu().detach().numpy(), preds_size.data)
 
+                preds_prob = preds_prob.cpu().detach().numpy()
+                confidence_scores = []
+                values = preds_prob.max(axis=2)
+                indices = preds_prob.argmax(axis=2)
+                preds_max_prob = []
+                for v, i in zip(values, indices):
+                    max_probs = v[i != 0]
+                    if len(max_probs) > 0:
+                        preds_max_prob.append(max_probs)
+                    else:
+                        preds_max_prob.append(np.array([0]))
+                for pred_max_prob in preds_max_prob:
+                    confidence_score = custom_mean(pred_max_prob)
+                    confidence_scores.append(confidence_score)
+
                 img_idx_prev = 0
                 for i, img_idx in enumerate(mbox): # image idex start from 1
                     if img_idx != img_idx_prev:
                         batch_out['box'].append([box[i]])
                         batch_out['text'].append([preds_str[i]])
+                        batch_out['score'].append([confidence_scores[i]])
                         img_idx_prev = img_idx
                         continue
                     batch_out['box'][-1].append(box[i])
                     batch_out['text'][-1].append(preds_str[i])
+                    batch_out['score'][-1].append(confidence_scores[i])
 
                 max_obj = max([len(b)  for b in batch_out['box']])
                 # The output of all imgs must have the same size for Triton to be able to output a Tensor of type self.output_dtypes
@@ -189,6 +213,7 @@ class TritonPythonModel(object):
                     for _ in range(max_obj - len(b)):
                         batch_out['box'][i].append([-1, -1, -1, -1])
                         batch_out['text'][i].append("")
+                        batch_out['score'][i].append(0)
 
             # Format outputs to build an InferenceResponse
             output_tensors = [Tensor(self.output_names[k], np.asarray(
