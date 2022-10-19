@@ -81,10 +81,16 @@ class TritonPythonModel(object):
             for img in batch_in:  # img is shape (1,)
                 pil_img = Image.open(io.BytesIO(img[0]))
                 h, w = np.array(pil_img).shape[:2]
-                pil_img = pil_img.resize(newsize)
-                batch_out['image'].append(np.array(pil_img))
                 batch_out['scale'].append([w/2240, h/1920])
-                image = np.transpose(normalizeMeanVariance(np.array(pil_img)), (2, 0, 1))
+                resized_image = np.array(pil_img.resize(newsize))
+                if len(resized_image.shape) == 3:
+                    image = np.transpose(normalizeMeanVariance(resized_image.copy()), (2, 0, 1))
+                elif len(np.array(pil_img).shape) == 2:
+                    resized_image = cv2.cvtColor(resized_image, cv2.COLOR_GRAY2BGR)
+                    image = np.transpose(normalizeMeanVariance(resized_image.copy()), (2, 0, 1))
+                else:
+                    raise ValueError(f"Do not support input image with {len(np.array(pil_img).shape)} channels")
+                batch_out['image'].append(resized_image)
                 batch_out['output'].append(np.array(image, dtype=np.float32))
             
             # Format outputs to build an InferenceResponse
