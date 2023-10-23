@@ -31,9 +31,7 @@ def four_point_transform(image, rect):
 
     # compute the perspective transform matrix and then apply it
     M = cv2.getPerspectiveTransform(rect, dst)
-    warped = cv2.warpPerspective(image, M, (maxWidth, maxHeight))
-
-    return warped
+    return cv2.warpPerspective(image, M, (maxWidth, maxHeight))
 
 def calculate_ratio(width,height):
     '''
@@ -67,9 +65,7 @@ def get_image_list(horizontal_list, free_list, img, model_height = 64, sort_outp
         transformed_img = four_point_transform(img, rect)
         ratio = calculate_ratio(transformed_img.shape[1],transformed_img.shape[0])
         new_width = int(model_height*ratio)
-        if new_width == 0:
-            pass
-        else:
+        if new_width != 0:
             crop_img,ratio = compute_ratio_and_resize(transformed_img,transformed_img.shape[1],transformed_img.shape[0],model_height)
             image_list.append( (box,crop_img) ) # box = [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]
             max_ratio_free = max(ratio, max_ratio_free)
@@ -87,9 +83,7 @@ def get_image_list(horizontal_list, free_list, img, model_height = 64, sort_outp
         height = y_max - y_min
         ratio = calculate_ratio(width,height)
         new_width = int(model_height*ratio)
-        if new_width == 0:
-            pass
-        else:
+        if new_width != 0:
             crop_img,ratio = compute_ratio_and_resize(crop_img,width,height,model_height)
             image_list.append( ( [[x_min,y_min],[x_max,y_min],[x_max,y_max],[x_min,y_max]] ,crop_img) )
             max_ratio_hori = max(ratio, max_ratio_hori)
@@ -106,7 +100,7 @@ def get_image_list(horizontal_list, free_list, img, model_height = 64, sort_outp
 def group_text_box(polys, slope_ths = 0.1, ycenter_ths = 0.5, height_ths = 0.5, width_ths = 1.0, add_margin = 0.05, sort_output = True):
     # poly top-left, top-right, low-right, low-left
     horizontal_list, free_list,combined_list, merged_list = [],[],[],[]
-    
+
     for poly in polys:
         slope_up = (poly[3]-poly[1])/np.maximum(10, (poly[2]-poly[0]))
         slope_down = (poly[5]-poly[7])/np.maximum(10, (poly[4]-poly[6]))
@@ -146,17 +140,15 @@ def group_text_box(polys, slope_ths = 0.1, ycenter_ths = 0.5, height_ths = 0.5, 
             b_height = [poly[5]]
             b_ycenter = [poly[4]]
             new_box.append(poly)
+        elif abs(np.mean(b_ycenter) - poly[4]) < ycenter_ths*np.mean(b_height):
+            b_height.append(poly[5])
+            b_ycenter.append(poly[4])
+            new_box.append(poly)
         else:
-            # comparable height and comparable y_center level up to ths*height
-            if abs(np.mean(b_ycenter) - poly[4]) < ycenter_ths*np.mean(b_height):
-                b_height.append(poly[5])
-                b_ycenter.append(poly[4])
-                new_box.append(poly)
-            else:
-                b_height = [poly[5]]
-                b_ycenter = [poly[4]]
-                combined_list.append(new_box)
-                new_box = [poly]
+            b_height = [poly[5]]
+            b_ycenter = [poly[4]]
+            combined_list.append(new_box)
+            new_box = [poly]
     combined_list.append(new_box)
 
     # merge list use sort again
@@ -174,16 +166,15 @@ def group_text_box(polys, slope_ths = 0.1, ycenter_ths = 0.5, height_ths = 0.5, 
                     b_height = [box[5]]
                     x_max = box[1]
                     new_box.append(box)
+                elif (abs(np.mean(b_height) - box[5]) < height_ths*np.mean(b_height)) and ((box[0]-x_max) < width_ths *(box[3]-box[2])): # merge boxes
+                    b_height.append(box[5])
+                    x_max = box[1]
+                    new_box.append(box)
                 else:
-                    if (abs(np.mean(b_height) - box[5]) < height_ths*np.mean(b_height)) and ((box[0]-x_max) < width_ths *(box[3]-box[2])): # merge boxes
-                        b_height.append(box[5])
-                        x_max = box[1]
-                        new_box.append(box)
-                    else:
-                        b_height = [box[5]]
-                        x_max = box[1]
-                        merged_box.append(new_box)
-                        new_box = [box]
+                    b_height = [box[5]]
+                    x_max = box[1]
+                    merged_box.append(new_box)
+                    new_box = [box]
             if len(new_box) >0: merged_box.append(new_box)
 
             for mbox in merged_box:
